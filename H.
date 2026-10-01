@@ -1,0 +1,3487 @@
+--========================================================--
+-- ROXO BOOMBOX [BETA]
+-- Made by IDODGE
+--
+-- HEAVY OVERHAUL
+--
+-- Persistent Recent Searches
+-- Persistent Recent Music IDs
+-- Reset Recent Searches
+-- Reset Recent Music IDs
+-- Per-Device / Per-Executor History
+-- Search Deduplication
+-- Music ID Deduplication
+-- Search Cache
+-- Improved Search Handling
+-- Improved Player
+-- Improved Queue
+-- Auto Next
+-- Shuffle
+-- Multi-Select Queue
+-- Volume 0-5000%
+-- Speed 0.5x-3x
+-- Bass Boost Overhaul
+-- Premium Headphone Overhaul
+-- Peaceful Mode Overhaul
+-- Phonk + Funk Overhaul
+-- Beat Enhancement Overhaul
+-- Slowed + Reverb Overhaul
+-- Audio Metadata
+-- Live Progress
+-- Music ID Center
+-- Client-Side Audio
+-- +/- 10 Seconds
+-- BOOMBOX / MUSIC CLEANER
+-- Execution Sound
+-- Reset All
+-- Maximum Capacity Protection
+-- Mobile + PC
+-- Heavy Stability Pass
+--========================================================--
+
+local Players = game:GetService("Players")
+local SoundService = game:GetService("SoundService")
+local RunService = game:GetService("RunService")
+local AssetService = game:GetService("AssetService")
+local StarterGui = game:GetService("StarterGui")
+
+local Player = Players.LocalPlayer
+
+--========================================================--
+-- GLOBAL / CAPACITY
+--========================================================--
+
+local GlobalEnv
+
+pcall(function()
+    GlobalEnv = getgenv()
+end)
+
+if not GlobalEnv then
+    GlobalEnv = _G
+end
+
+if GlobalEnv.ROXO_BOOMBOX_ACTIVE then
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "ROXO BOOMBOX",
+            Text = "MAXIMUM CAPACITY IS REACHED (1).",
+            Duration = 5
+        })
+    end)
+
+    warn("ROXO BOOMBOX: MAXIMUM CAPACITY IS REACHED (1).")
+    return
+end
+
+GlobalEnv.ROXO_BOOMBOX_ACTIVE = true
+
+local function ReleaseCapacity()
+    if GlobalEnv then
+        GlobalEnv.ROXO_BOOMBOX_ACTIVE = nil
+    end
+end
+
+--========================================================--
+-- RAYFIELD
+--========================================================--
+
+local Rayfield
+
+local RayfieldSuccess, RayfieldResult = pcall(function()
+    return loadstring(game:HttpGet(
+        "https://sirius.menu/rayfield"
+    ))()
+end)
+
+if not RayfieldSuccess or not RayfieldResult then
+    ReleaseCapacity()
+
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "ROXO BOOMBOX",
+            Text = "Failed to load Rayfield.",
+            Duration = 5
+        })
+    end)
+
+    return
+end
+
+Rayfield = RayfieldResult
+
+--========================================================--
+-- CONFIG
+--========================================================--
+
+local BOOMBOX_NAME = "ROXO_IDODGE_BOOMBOX"
+local EXECUTION_SOUND_ID = ""
+
+local MAX_VOLUME_PERCENT = 5000
+
+local MIN_SPEED = 0.5
+local MAX_SPEED = 3
+
+local DEFAULT_VOLUME = 100
+local DEFAULT_SPEED = 1
+
+local DEFAULT_BASS = 50
+local DEFAULT_HEADPHONE = 50
+local DEFAULT_PEACEFUL = 50
+local DEFAULT_PHONKFUNK = 50
+local DEFAULT_BEATS = 50
+
+local DEFAULT_CUSTOM_SLOW = 25
+local DEFAULT_CUSTOM_REVERB = 50
+
+local MAX_RECENT_SEARCHES = 50
+local MAX_RECENT_IDS = 50
+
+local SEARCH_CACHE_LIMIT = 30
+
+local HISTORY_SEARCH_FILE = "ROXO_BOOMBOX_RECENT_SEARCHES.json"
+local HISTORY_ID_FILE = "ROXO_BOOMBOX_RECENT_IDS.json"
+
+--========================================================--
+-- WINDOW
+--========================================================--
+
+local Window = Rayfield:CreateWindow({
+    Name = "ROXO BOOMBOX",
+    LoadingTitle = "ROXO BOOMBOX",
+    LoadingSubtitle = "Heavy Overhaul • Made by IDODGE",
+    Theme = "Default",
+
+    ConfigurationSaving = {
+        Enabled = false
+    },
+
+    Discord = {
+        Enabled = false
+    },
+
+    KeySystem = false
+})
+
+local MainTab =
+    Window:CreateTab("🎵 ROXO BOOMBOX")
+
+local RecentTab =
+    Window:CreateTab("🕘 RECENT")
+
+local QueueTab =
+    Window:CreateTab("📋 QUEUE")
+
+local HubTab =
+    Window:CreateTab("🏠 HUB")
+
+local UpdatesTab =
+    Window:CreateTab("🆕 OVERHAUL")
+
+--========================================================--
+-- OLD SOUND CLEANUP
+--========================================================--
+
+local function CleanOldROXOSounds()
+    for _, object in ipairs(SoundService:GetChildren()) do
+        if object.Name == BOOMBOX_NAME
+            or object.Name == "ROXO_EXECUTION_SOUND" then
+
+            pcall(function()
+                object:Stop()
+            end)
+
+            pcall(function()
+                object:Destroy()
+            end)
+        end
+    end
+end
+
+CleanOldROXOSounds()
+
+--========================================================--
+-- MAIN SOUND
+--========================================================--
+
+local Sound = Instance.new("Sound")
+
+Sound.Name = BOOMBOX_NAME
+Sound.Volume = 1
+Sound.PlaybackSpeed = 1
+Sound.Looped = false
+Sound.Parent = SoundService
+
+--========================================================--
+-- AUDIO EFFECTS
+--========================================================--
+
+local BassEQ = Instance.new("EqualizerSoundEffect")
+BassEQ.Name = "ROXO_Bass_Overhaul"
+BassEQ.Enabled = false
+BassEQ.LowGain = 0
+BassEQ.MidGain = 0
+BassEQ.HighGain = 0
+BassEQ.Parent = Sound
+
+local Reverb = Instance.new("ReverbSoundEffect")
+Reverb.Name = "ROXO_Slowed_Reverb_Overhaul"
+Reverb.Enabled = false
+Reverb.DecayTime = 2
+Reverb.Density = 0.7
+Reverb.Diffusion = 0.8
+Reverb.DryLevel = 0
+Reverb.WetLevel = -6
+Reverb.Parent = Sound
+
+local HeadphoneEQ = Instance.new("EqualizerSoundEffect")
+HeadphoneEQ.Name = "ROXO_Premium_Headphones_Overhaul"
+HeadphoneEQ.Enabled = false
+HeadphoneEQ.LowGain = 0
+HeadphoneEQ.MidGain = 0
+HeadphoneEQ.HighGain = 0
+HeadphoneEQ.Parent = Sound
+
+local HeadphoneReverb = Instance.new("ReverbSoundEffect")
+HeadphoneReverb.Name = "ROXO_Headphone_Spatial"
+HeadphoneReverb.Enabled = false
+HeadphoneReverb.DecayTime = 0.8
+HeadphoneReverb.Density = 0.35
+HeadphoneReverb.Diffusion = 0.65
+HeadphoneReverb.DryLevel = 0
+HeadphoneReverb.WetLevel = -18
+HeadphoneReverb.Parent = Sound
+
+local BeatEQ = Instance.new("EqualizerSoundEffect")
+BeatEQ.Name = "ROXO_Beat_Enhancer_Overhaul"
+BeatEQ.Enabled = false
+BeatEQ.LowGain = 0
+BeatEQ.MidGain = 0
+BeatEQ.HighGain = 0
+BeatEQ.Parent = Sound
+
+local PhonkFunkEQ = Instance.new("EqualizerSoundEffect")
+PhonkFunkEQ.Name = "ROXO_PhonK_Funk_Overhaul"
+PhonkFunkEQ.Enabled = false
+PhonkFunkEQ.LowGain = 0
+PhonkFunkEQ.MidGain = 0
+PhonkFunkEQ.HighGain = 0
+PhonkFunkEQ.Parent = Sound
+
+local PeacefulEQ = Instance.new("EqualizerSoundEffect")
+PeacefulEQ.Name = "ROXO_Peaceful_Overhaul"
+PeacefulEQ.Enabled = false
+PeacefulEQ.LowGain = 0
+PeacefulEQ.MidGain = 0
+PeacefulEQ.HighGain = 0
+PeacefulEQ.Parent = Sound
+
+--========================================================--
+-- STATE
+--========================================================--
+
+local CurrentID = nil
+local CurrentTitle = "Nothing Playing"
+local CurrentArtist = "Unknown Artist"
+local CurrentDuration = 0
+
+local Volume = DEFAULT_VOLUME
+local NormalSpeed = DEFAULT_SPEED
+
+local BassEnabled = false
+local HeadphoneEnabled = false
+local PeacefulEnabled = false
+local PhonkFunkEnabled = false
+local BeatsEnabled = false
+
+local RecommendedSlowed = false
+local CustomSlowed = false
+local LoopEnabled = false
+
+local BassAmount = DEFAULT_BASS
+local HeadphoneAmount = DEFAULT_HEADPHONE
+local PeacefulAmount = DEFAULT_PEACEFUL
+local PhonkFunkAmount = DEFAULT_PHONKFUNK
+local BeatAmount = DEFAULT_BEATS
+
+local CustomSlowAmount = DEFAULT_CUSTOM_SLOW
+local CustomReverbAmount = DEFAULT_CUSTOM_REVERB
+
+local SearchBusy = false
+local QueueSearchBusy = false
+
+local SearchResults = {}
+local QueueSearchResults = {}
+local SelectedQueueSearchResults = {}
+
+local Queue = {}
+local SelectedQueueIndex = nil
+
+local CurrentQueueSong = nil
+local PlayingFromQueue = false
+
+local ProgressConnection = nil
+local LoadedConnection = nil
+
+local Closing = false
+
+--========================================================--
+-- PERSISTENT STORAGE ENGINE
+--========================================================--
+
+local FileAPIAvailable = false
+
+pcall(function()
+    FileAPIAvailable =
+        type(writefile) == "function"
+        and type(readfile) == "function"
+        and type(isfile) == "function"
+end)
+
+local function SafeJSONEncode(data)
+    local success, result = pcall(function()
+        return game:GetService("HttpService"):JSONEncode(data)
+    end)
+
+    if success then
+        return result
+    end
+
+    return "[]"
+end
+
+local function SafeJSONDecode(data)
+    local success, result = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(data)
+    end)
+
+    if success and type(result) == "table" then
+        return result
+    end
+
+    return {}
+end
+
+local function LoadHistory(filename)
+    if not FileAPIAvailable then
+        return {}
+    end
+
+    local exists = false
+
+    pcall(function()
+        exists = isfile(filename)
+    end)
+
+    if not exists then
+        return {}
+    end
+
+    local content
+
+    local success = pcall(function()
+        content = readfile(filename)
+    end)
+
+    if not success or not content or content == "" then
+        return {}
+    end
+
+    local decoded = SafeJSONDecode(content)
+
+    if type(decoded) ~= "table" then
+        return {}
+    end
+
+    return decoded
+end
+
+local function SaveHistory(filename, data)
+    if not FileAPIAvailable then
+        return false
+    end
+
+    local encoded = SafeJSONEncode(data)
+
+    return pcall(function()
+        writefile(filename, encoded)
+    end)
+end
+
+local RecentSearches = LoadHistory(HISTORY_SEARCH_FILE)
+local RecentMusicIDs = LoadHistory(HISTORY_ID_FILE)
+
+--========================================================--
+-- HISTORY SANITIZATION
+--========================================================--
+
+local function SanitizeHistory()
+    local cleanSearches = {}
+    local seenSearches = {}
+
+    for _, item in ipairs(RecentSearches) do
+        local value = tostring(item)
+
+        if value ~= ""
+            and not seenSearches[value:lower()] then
+
+            seenSearches[value:lower()] = true
+            table.insert(cleanSearches, value)
+
+            if #cleanSearches >= MAX_RECENT_SEARCHES then
+                break
+            end
+        end
+    end
+
+    RecentSearches = cleanSearches
+
+    local cleanIDs = {}
+    local seenIDs = {}
+
+    for _, item in ipairs(RecentMusicIDs) do
+        local value = tostring(item)
+
+        if value ~= ""
+            and not seenIDs[value] then
+
+            seenIDs[value] = true
+            table.insert(cleanIDs, value)
+
+            if #cleanIDs >= MAX_RECENT_IDS then
+                break
+            end
+        end
+    end
+
+    RecentMusicIDs = cleanIDs
+
+    SaveHistory(HISTORY_SEARCH_FILE, RecentSearches)
+    SaveHistory(HISTORY_ID_FILE, RecentMusicIDs)
+end
+
+SanitizeHistory()
+
+--========================================================--
+-- HISTORY ADD
+--========================================================--
+
+local function AddRecentSearch(keyword)
+    keyword = tostring(keyword or "")
+    keyword = keyword:gsub("^%s+", ""):gsub("%s+$", "")
+
+    if keyword == "" then
+        return
+    end
+
+    local lower = keyword:lower()
+    local newList = {keyword}
+
+    for _, old in ipairs(RecentSearches) do
+        local value = tostring(old)
+
+        if value:lower() ~= lower then
+            table.insert(newList, value)
+        end
+
+        if #newList >= MAX_RECENT_SEARCHES then
+            break
+        end
+    end
+
+    RecentSearches = newList
+
+    SaveHistory(
+        HISTORY_SEARCH_FILE,
+        RecentSearches
+    )
+end
+
+local function AddRecentMusicID(id)
+    id = tostring(id or "")
+
+    if id == "" then
+        return
+    end
+
+    local newList = {id}
+
+    for _, old in ipairs(RecentMusicIDs) do
+        local value = tostring(old)
+
+        if value ~= id then
+            table.insert(newList, value)
+        end
+
+        if #newList >= MAX_RECENT_IDS then
+            break
+        end
+    end
+
+    RecentMusicIDs = newList
+
+    SaveHistory(
+        HISTORY_ID_FILE,
+        RecentMusicIDs
+    )
+end
+
+local function ResetRecentSearches()
+    RecentSearches = {}
+
+    SaveHistory(
+        HISTORY_SEARCH_FILE,
+        RecentSearches
+    )
+end
+
+local function ResetRecentMusicIDs()
+    RecentMusicIDs = {}
+
+    SaveHistory(
+        HISTORY_ID_FILE,
+        RecentMusicIDs
+    )
+end
+
+--========================================================--
+-- HELPERS
+--========================================================--
+
+local function Clamp(value, minimum, maximum)
+    return math.clamp(
+        tonumber(value) or minimum,
+        minimum,
+        maximum
+    )
+end
+
+local function FormatTime(seconds)
+    seconds = tonumber(seconds) or 0
+    seconds = math.max(seconds, 0)
+
+    local minutes = math.floor(seconds / 60)
+    local secs = math.floor(seconds % 60)
+
+    return string.format(
+        "%02d:%02d",
+        minutes,
+        secs
+    )
+end
+
+local function SafeString(value, fallback)
+    if value == nil then
+        return fallback or ""
+    end
+
+    local success, result = pcall(function()
+        return tostring(value)
+    end)
+
+    if not success or result == "" then
+        return fallback or ""
+    end
+
+    return result
+end
+
+local function GetNumber(value)
+    return tonumber(value) or 0
+end
+
+local function GetAudioID(audio)
+    if not audio then
+        return nil
+    end
+
+    local id
+
+    pcall(function()
+        id = audio.Id
+    end)
+
+    if id then
+        return tostring(id)
+    end
+
+    return nil
+end
+
+local function GetAudioTitle(audio)
+    if not audio then
+        return "Unknown Title"
+    end
+
+    return SafeString(
+        audio.Title,
+        "Unknown Title"
+    )
+end
+
+local function GetAudioArtist(audio)
+    if not audio then
+        return "Unknown Artist"
+    end
+
+    return SafeString(
+        audio.Artist,
+        "Unknown Artist"
+    )
+end
+
+local function GetAudioDuration(audio)
+    if not audio then
+        return 0
+    end
+
+    return GetNumber(audio.Duration)
+end
+
+local function BuildAudioName(audio)
+    return string.format(
+        "%s • %s • %s • ID %s",
+
+        GetAudioTitle(audio),
+
+        GetAudioArtist(audio),
+
+        FormatTime(
+            GetAudioDuration(audio)
+        ),
+
+        tostring(
+            GetAudioID(audio)
+        )
+    )
+end
+
+local function Notify(title, content, duration)
+    if Closing then
+        return
+    end
+
+    pcall(function()
+        Rayfield:Notify({
+            Title = title or "ROXO BOOMBOX",
+            Content = content or "",
+            Duration = duration or 3
+        })
+    end)
+end
+
+--========================================================--
+-- STATUS
+--========================================================--
+
+local StatusLabel =
+    MainTab:CreateLabel(
+        "🎵 Nothing Playing"
+    )
+
+local ProgressLabel =
+    MainTab:CreateLabel(
+        "00:00 / 00:00"
+    )
+
+local AudioNameLabel =
+    MainTab:CreateLabel(
+        "🎵 Audio Name: Nothing Playing"
+    )
+
+local AudioIDLabel =
+    MainTab:CreateLabel(
+        "🆔 Audio ID: None"
+    )
+
+local ArtistLabel =
+    MainTab:CreateLabel(
+        "👤 Artist: Unknown Artist"
+    )
+
+local StorageLabel =
+    RecentTab:CreateLabel(
+        FileAPIAvailable
+        and "💾 Persistent Storage: Available"
+        or "💾 Persistent Storage: Unavailable"
+    )
+
+--========================================================--
+-- STATUS UPDATE
+--========================================================--
+
+local function UpdateAudioInfo()
+    if Closing then
+        return
+    end
+
+    pcall(function()
+        AudioNameLabel:Set(
+            "🎵 Audio Name: "
+            .. SafeString(
+                CurrentTitle,
+                "Nothing Playing"
+            )
+        )
+
+        AudioIDLabel:Set(
+            "🆔 Audio ID: "
+            .. (
+                CurrentID
+                and tostring(CurrentID)
+                or "None"
+            )
+        )
+
+        ArtistLabel:Set(
+            "👤 Artist: "
+            .. SafeString(
+                CurrentArtist,
+                "Unknown Artist"
+            )
+        )
+    end)
+end
+
+local function UpdateStatus()
+    if Closing then
+        return
+    end
+
+    if not CurrentID then
+        StatusLabel:Set(
+            "🎵 Nothing Playing"
+        )
+
+        ProgressLabel:Set(
+            "00:00 / 00:00"
+        )
+    else
+        StatusLabel:Set(
+            "🎵 "
+            .. SafeString(
+                CurrentTitle,
+                "Unknown Title"
+            )
+            .. " • "
+            .. SafeString(
+                CurrentArtist,
+                "Unknown Artist"
+            )
+        )
+    end
+
+    UpdateAudioInfo()
+end
+
+--========================================================--
+-- PROGRESS
+--========================================================--
+
+local function StopProgressUpdater()
+    if ProgressConnection then
+        pcall(function()
+            ProgressConnection:Disconnect()
+        end)
+
+        ProgressConnection = nil
+    end
+end
+
+local function StartProgressUpdater()
+    StopProgressUpdater()
+
+    ProgressConnection =
+        RunService.Heartbeat:Connect(
+            function()
+                if Closing then
+                    return
+                end
+
+                if not Sound
+                    or not Sound.Parent then
+                    return
+                end
+
+                local current =
+                    Sound.TimePosition
+
+                local length =
+                    Sound.TimeLength
+
+                if length > 0 then
+                    ProgressLabel:Set(
+                        FormatTime(current)
+                        .. " / "
+                        .. FormatTime(length)
+                    )
+                else
+                    ProgressLabel:Set(
+                        FormatTime(current)
+                        .. " / Loading..."
+                    )
+                end
+            end
+        )
+end
+
+--========================================================--
+-- EFFECT RESET
+--========================================================--
+
+local function ResetEffectValues()
+    BassEQ.Enabled = false
+    HeadphoneEQ.Enabled = false
+    HeadphoneReverb.Enabled = false
+    BeatEQ.Enabled = false
+    PhonkFunkEQ.Enabled = false
+    PeacefulEQ.Enabled = false
+    Reverb.Enabled = false
+
+    BassEQ.LowGain = 0
+    BassEQ.MidGain = 0
+    BassEQ.HighGain = 0
+
+    HeadphoneEQ.LowGain = 0
+    HeadphoneEQ.MidGain = 0
+    HeadphoneEQ.HighGain = 0
+
+    BeatEQ.LowGain = 0
+    BeatEQ.MidGain = 0
+    BeatEQ.HighGain = 0
+
+    PhonkFunkEQ.LowGain = 0
+    PhonkFunkEQ.MidGain = 0
+    PhonkFunkEQ.HighGain = 0
+
+    PeacefulEQ.LowGain = 0
+    PeacefulEQ.MidGain = 0
+    PeacefulEQ.HighGain = 0
+end
+
+--========================================================--
+-- BASS
+--========================================================--
+
+local function ApplyBass()
+    if not BassEnabled then
+        return
+    end
+
+    local strength =
+        Clamp(
+            BassAmount,
+            0,
+            100
+        ) / 100
+
+    BassEQ.Enabled = true
+
+    BassEQ.LowGain =
+        4 + (12 * strength)
+
+    BassEQ.MidGain =
+        0.5 + (2.5 * strength)
+
+    BassEQ.HighGain =
+        -0.25 - (1.5 * strength)
+end
+
+--========================================================--
+-- HEADPHONES
+--========================================================--
+
+local function ApplyHeadphones()
+    if not HeadphoneEnabled then
+        return
+    end
+
+    local strength =
+        Clamp(
+            HeadphoneAmount,
+            0,
+            100
+        ) / 100
+
+    HeadphoneEQ.Enabled = true
+
+    HeadphoneEQ.LowGain =
+        2 + (5 * strength)
+
+    HeadphoneEQ.MidGain =
+        1 + (3 * strength)
+
+    HeadphoneEQ.HighGain =
+        3 + (7 * strength)
+
+    HeadphoneReverb.Enabled = true
+
+    HeadphoneReverb.DecayTime =
+        0.45 + (0.65 * strength)
+
+    HeadphoneReverb.Density =
+        0.25 + (0.25 * strength)
+
+    HeadphoneReverb.Diffusion =
+        0.5 + (0.35 * strength)
+
+    HeadphoneReverb.DryLevel = 0
+
+    HeadphoneReverb.WetLevel =
+        -24 + (8 * strength)
+end
+
+--========================================================--
+-- PEACEFUL
+--========================================================--
+
+local function ApplyPeaceful()
+    if not PeacefulEnabled then
+        return
+    end
+
+    local strength =
+        Clamp(
+            PeacefulAmount,
+            0,
+            100
+        ) / 100
+
+    PeacefulEQ.Enabled = true
+
+    PeacefulEQ.LowGain =
+        -1 - (6 * strength)
+
+    PeacefulEQ.MidGain =
+        0.5 + (1.5 * strength)
+
+    PeacefulEQ.HighGain =
+        -1 - (7 * strength)
+
+    Reverb.Enabled = true
+
+    Reverb.DecayTime =
+        2.2 + (3.0 * strength)
+
+    Reverb.Density =
+        0.4 + (0.3 * strength)
+
+    Reverb.Diffusion =
+        0.65 + (0.3 * strength)
+
+    Reverb.DryLevel = -1
+
+    Reverb.WetLevel =
+        -16 + (9 * strength)
+end
+
+--========================================================--
+-- PHONK / FUNK
+--========================================================--
+
+local function ApplyPhonkFunk()
+    if not PhonkFunkEnabled then
+        return
+    end
+
+    local strength =
+        Clamp(
+            PhonkFunkAmount,
+            0,
+            100
+        ) / 100
+
+    PhonkFunkEQ.Enabled = true
+
+    PhonkFunkEQ.LowGain =
+        4 + (9 * strength)
+
+    PhonkFunkEQ.MidGain =
+        0.5 + (3 * strength)
+
+    PhonkFunkEQ.HighGain =
+        1 + (4 * strength)
+
+    Reverb.Enabled = true
+
+    Reverb.DecayTime =
+        1.0 + (0.8 * strength)
+
+    Reverb.Density =
+        0.3 + (0.2 * strength)
+
+    Reverb.Diffusion =
+        0.5 + (0.25 * strength)
+
+    Reverb.DryLevel = -1
+
+    Reverb.WetLevel =
+        -21 + (7 * strength)
+end
+
+--========================================================--
+-- BEATS
+--========================================================--
+
+local function ApplyBeats()
+    if not BeatsEnabled then
+        return
+    end
+
+    local strength =
+        Clamp(
+            BeatAmount,
+            0,
+            100
+        ) / 100
+
+    BeatEQ.Enabled = true
+
+    BeatEQ.LowGain =
+        3 + (10 * strength)
+
+    BeatEQ.MidGain =
+        1 + (4 * strength)
+
+    BeatEQ.HighGain =
+        0.5 + (3 * strength)
+end
+
+--========================================================--
+-- SLOWED + REVERB
+--========================================================--
+
+local function ApplySlowedReverb()
+    if PeacefulEnabled then
+        return
+    end
+
+    if not RecommendedSlowed
+        and not CustomSlowed then
+
+        Sound.PlaybackSpeed =
+            Clamp(
+                NormalSpeed,
+                MIN_SPEED,
+                MAX_SPEED
+            )
+
+        return
+    end
+
+    Reverb.Enabled = true
+
+    if RecommendedSlowed then
+        Sound.PlaybackSpeed =
+            Clamp(
+                NormalSpeed * 0.78,
+                MIN_SPEED,
+                MAX_SPEED
+            )
+
+        Reverb.DecayTime = 4.2
+        Reverb.Density = 0.72
+        Reverb.Diffusion = 0.92
+        Reverb.DryLevel = -1
+        Reverb.WetLevel = -4
+
+    elseif CustomSlowed then
+        local slow =
+            Clamp(
+                CustomSlowAmount,
+                0,
+                50
+            ) / 100
+
+        local reverb =
+            Clamp(
+                CustomReverbAmount,
+                0,
+                100
+            ) / 100
+
+        Sound.PlaybackSpeed =
+            Clamp(
+                NormalSpeed * (1 - slow),
+                MIN_SPEED,
+                MAX_SPEED
+            )
+
+        Reverb.DecayTime =
+            1.8 + (4.2 * reverb)
+
+        Reverb.Density =
+            0.3 + (0.5 * reverb)
+
+        Reverb.Diffusion =
+            0.5 + (0.45 * reverb)
+
+        Reverb.DryLevel = -1
+
+        Reverb.WetLevel =
+            -16 + (12 * reverb)
+    end
+end
+
+--========================================================--
+-- AUDIO ENGINE
+--========================================================--
+
+local function ApplyAudioEffects()
+    if Closing then
+        return
+    end
+
+    ResetEffectValues()
+
+    if PeacefulEnabled then
+        ApplyPeaceful()
+        ApplyHeadphones()
+
+        Sound.PlaybackSpeed =
+            Clamp(
+                NormalSpeed,
+                MIN_SPEED,
+                MAX_SPEED
+            )
+
+        return
+    end
+
+    ApplyBass()
+    ApplyHeadphones()
+    ApplyPhonkFunk()
+    ApplyBeats()
+    ApplySlowedReverb()
+
+    Sound.PlaybackSpeed =
+        Clamp(
+            Sound.PlaybackSpeed,
+            MIN_SPEED,
+            MAX_SPEED
+        )
+end
+
+--========================================================--
+-- PLAY AUDIO
+--========================================================--
+
+local function PlayAudio(audio, fromQueue)
+    if Closing or not audio then
+        return false
+    end
+
+    local id = GetAudioID(audio)
+
+    if not id or id == "" then
+        Notify(
+            "ROXO BOOMBOX",
+            "Invalid or missing audio ID.",
+            4
+        )
+
+        return false
+    end
+
+    CurrentID = id
+    CurrentTitle = GetAudioTitle(audio)
+    CurrentArtist = GetAudioArtist(audio)
+    CurrentDuration = GetAudioDuration(audio)
+
+    CurrentQueueSong = audio
+    PlayingFromQueue = fromQueue == true
+
+    AddRecentMusicID(id)
+
+    if LoadedConnection then
+        pcall(function()
+            LoadedConnection:Disconnect()
+        end)
+
+        LoadedConnection = nil
+    end
+
+    pcall(function()
+        Sound:Stop()
+    end)
+
+    Sound.SoundId =
+        "rbxassetid://" .. tostring(id)
+
+    Sound.Volume =
+        math.clamp(
+            Volume / 100,
+            0,
+            50
+        )
+
+    Sound.Looped = LoopEnabled
+
+    ApplyAudioEffects()
+    UpdateStatus()
+    StartProgressUpdater()
+
+    local loadFinished = false
+
+    LoadedConnection =
+        Sound.Loaded:Connect(
+            function()
+                loadFinished = true
+
+                if LoadedConnection then
+                    pcall(function()
+                        LoadedConnection:Disconnect()
+                    end)
+
+                    LoadedConnection = nil
+                end
+
+                if Closing then
+                    return
+                end
+
+                CurrentDuration =
+                    Sound.TimeLength
+
+                UpdateStatus()
+            end
+        )
+
+    local success, errorMessage =
+        pcall(function()
+            Sound:Play()
+        end)
+
+    if not success then
+        Notify(
+            "Playback Error",
+            SafeString(
+                errorMessage,
+                "Unable to play audio."
+            ),
+            5
+        )
+
+        return false
+    end
+
+    task.delay(
+        8,
+        function()
+            if Closing then
+                return
+            end
+
+            if not loadFinished
+                and Sound.Parent
+                and Sound.SoundId ==
+                    "rbxassetid://" .. tostring(id) then
+
+                pcall(function()
+                    Sound:Play()
+                end)
+            end
+        end
+    )
+
+    Notify(
+        "🎵 Now Playing",
+        CurrentTitle
+        .. " • "
+        .. CurrentArtist,
+        3
+    )
+
+    return true
+end
+
+--========================================================--
+-- REMOVE CURRENT
+--========================================================--
+
+local function RemoveCurrentMusic()
+    pcall(function()
+        Sound:Stop()
+    end)
+
+    CurrentID = nil
+    CurrentTitle = "Nothing Playing"
+    CurrentArtist = "Unknown Artist"
+    CurrentDuration = 0
+
+    CurrentQueueSong = nil
+    PlayingFromQueue = false
+
+    UpdateStatus()
+
+    Notify(
+        "ROXO BOOMBOX",
+        "Current music removed.",
+        3
+    )
+end
+
+--========================================================--
+-- QUEUE
+--========================================================--
+
+local QueueDropdown
+
+local function BuildQueueOptions()
+    local options = {}
+
+    for index, song in ipairs(Queue) do
+        table.insert(
+            options,
+            string.format(
+                "%02d. %s • %s • ID %s",
+
+                index,
+
+                GetAudioTitle(song),
+
+                GetAudioArtist(song),
+
+                tostring(
+                    GetAudioID(song)
+                )
+            )
+        )
+    end
+
+    if #options == 0 then
+        table.insert(
+            options,
+            "Queue is empty"
+        )
+    end
+
+    return options
+end
+
+local function RefreshQueueDropdown()
+    if not QueueDropdown then
+        return
+    end
+
+    pcall(function()
+        QueueDropdown:Refresh(
+            BuildQueueOptions()
+        )
+
+        QueueDropdown:Set({})
+    end)
+
+    SelectedQueueIndex = nil
+end
+
+local function PlayNextSong()
+    if Closing then
+        return
+    end
+
+    if #Queue == 0 then
+        Notify(
+            "Queue",
+            "No songs left in the queue.",
+            3
+        )
+
+        return
+    end
+
+    local nextSong =
+        table.remove(
+            Queue,
+            1
+        )
+
+    RefreshQueueDropdown()
+
+    if nextSong then
+        PlayAudio(
+            nextSong,
+            true
+        )
+    end
+end
+
+Sound.Ended:Connect(function()
+    if Closing then
+        return
+    end
+
+    if LoopEnabled then
+        return
+    end
+
+    if #Queue > 0 then
+        task.defer(function()
+            if not Closing then
+                PlayNextSong()
+            end
+        })
+    else
+        CurrentID = nil
+        CurrentTitle = "Nothing Playing"
+        CurrentArtist = "Unknown Artist"
+        CurrentDuration = 0
+
+        CurrentQueueSong = nil
+        PlayingFromQueue = false
+
+        StopProgressUpdater()
+        UpdateStatus()
+    end
+end)
+
+--========================================================--
+-- MAIN SEARCH
+--========================================================--
+
+MainTab:CreateSection(
+    "🔎 MUSIC SEARCH"
+)
+
+local MainSearchInput =
+    MainTab:CreateInput({
+        Name = "Search Roblox Music",
+
+        PlaceholderText =
+            "Type a song, artist, or keyword...",
+
+        RemoveTextAfterFocusLost = false,
+
+        Callback = function()
+        end
+    })
+
+local MainSearchDropdown =
+    MainTab:CreateDropdown({
+        Name = "Search Results",
+
+        Options = {
+            "Search for music first"
+        },
+
+        CurrentOption = {
+            "Search for music first"
+        },
+
+        MultipleOptions = false,
+
+        Callback = function(option)
+            local selected = option[1]
+
+            if selected
+                and SearchResults[selected] then
+
+                PlayAudio(
+                    SearchResults[selected],
+                    false
+                )
+            end
+        end
+    })
+
+MainTab:CreateButton({
+    Name = "🔎 Search Music",
+
+    Callback = function()
+        if SearchBusy then
+            Notify(
+                "Search Busy",
+                "Please wait for the current search.",
+                2
+            )
+
+            return
+        end
+
+        local keyword =
+            MainSearchInput.CurrentValue
+
+        if not keyword
+            or keyword == "" then
+
+            Notify(
+                "Search",
+                "Enter a music search first.",
+                3
+            )
+
+            return
+        end
+
+        SearchBusy = true
+
+        AddRecentSearch(keyword)
+
+        SearchResults = {}
+
+        MainSearchDropdown:Refresh({
+            "Searching..."
+        })
+
+        task.spawn(function()
+            local success, pages =
+                pcall(function()
+                    local params =
+                        Instance.new(
+                            "AudioSearchParams"
+                        )
+
+                    params.SearchKeyword =
+                        keyword
+
+                    return AssetService:
+                        SearchAudioAsync(
+                            params
+                        )
+                end)
+
+            if not success then
+                SearchBusy = false
+
+                MainSearchDropdown:Refresh({
+                    "Search failed"
+                })
+
+                Notify(
+                    "Search Error",
+                    SafeString(
+                        pages,
+                        "Music search failed."
+                    ),
+                    5
+                )
+
+                return
+            end
+
+            local successPage, results =
+                pcall(function()
+                    return pages:
+                        GetCurrentPage()
+                end)
+
+            if not successPage
+                or not results then
+
+                SearchBusy = false
+
+                MainSearchDropdown:Refresh({
+                    "No results"
+                })
+
+                Notify(
+                    "Search",
+                    "No results were returned.",
+                    3
+                )
+
+                return
+            end
+
+            local options = {}
+
+            for _, audio in ipairs(results) do
+                if audio and audio.Id then
+                    local display =
+                        BuildAudioName(audio)
+
+                    if SearchResults[display] then
+                        display =
+                            display
+                            .. " ["
+                            .. tostring(audio.Id)
+                            .. "]"
+                    end
+
+                    SearchResults[display] =
+                        audio
+
+                    table.insert(
+                        options,
+                        display
+                    )
+
+                    if #options >= SEARCH_CACHE_LIMIT then
+                        break
+                    end
+                end
+            end
+
+            SearchBusy = false
+
+            if #options == 0 then
+                MainSearchDropdown:Refresh({
+                    "No music found"
+                })
+
+                Notify(
+                    "Search",
+                    "No audio results found.",
+                    3
+                )
+
+                return
+            end
+
+            MainSearchDropdown:Refresh(
+                options
+            )
+
+            Notify(
+                "Search Complete",
+                tostring(#options)
+                .. " result(s) found.",
+                3
+            )
+        end)
+    end
+})
+
+--========================================================--
+-- RECENT SEARCHES
+--========================================================--
+
+RecentTab:CreateSection(
+    "🕘 RECENT SEARCHES"
+)
+
+local RecentSearchDropdown =
+    RecentTab:CreateDropdown({
+        Name = "Recent Searches",
+
+        Options =
+            #RecentSearches > 0
+            and RecentSearches
+            or {"No recent searches"},
+
+        CurrentOption = {},
+
+        MultipleOptions = false,
+
+        Callback = function(option)
+            local selected = option[1]
+
+            if not selected
+                or selected == "No recent searches" then
+                return
+            end
+
+            MainSearchInput:Set(selected)
+
+            Notify(
+                "Recent Search",
+                "Search loaded: " .. selected,
+                2
+            )
+        end
+    })
+
+RecentTab:CreateButton({
+    Name = "🔎 Search Selected Recent",
+
+    Callback = function()
+        local selected =
+            RecentSearchDropdown.CurrentOption
+
+        if type(selected) ~= "table"
+            or not selected[1] then
+
+            Notify(
+                "Recent Searches",
+                "Select a recent search first.",
+                3
+            )
+
+            return
+        end
+
+        local keyword = selected[1]
+
+        MainSearchInput:Set(keyword)
+
+        if SearchBusy then
+            Notify(
+                "Search Busy",
+                "Wait for the current search.",
+                2
+            )
+
+            return
+        end
+
+        SearchBusy = true
+
+        SearchResults = {}
+
+        MainSearchDropdown:Refresh({
+            "Searching..."
+        })
+
+        task.spawn(function()
+            local success, pages =
+                pcall(function()
+                    local params =
+                        Instance.new(
+                            "AudioSearchParams"
+                        )
+
+                    params.SearchKeyword =
+                        keyword
+
+                    return AssetService:
+                        SearchAudioAsync(
+                            params
+                        )
+                end)
+
+            if not success then
+                SearchBusy = false
+
+                MainSearchDropdown:Refresh({
+                    "Search failed"
+                })
+
+                Notify(
+                    "Search Error",
+                    "Recent search failed.",
+                    4
+                )
+
+                return
+            end
+
+            local ok, results =
+                pcall(function()
+                    return pages:GetCurrentPage()
+                end)
+
+            if not ok or not results then
+                SearchBusy = false
+
+                MainSearchDropdown:Refresh({
+                    "No results"
+                })
+
+                return
+            end
+
+            local options = {}
+
+            for _, audio in ipairs(results) do
+                if audio and audio.Id then
+                    local display =
+                        BuildAudioName(audio)
+
+                    if SearchResults[display] then
+                        display =
+                            display
+                            .. " ["
+                            .. tostring(audio.Id)
+                            .. "]"
+                    end
+
+                    SearchResults[display] =
+                        audio
+
+                    table.insert(
+                        options,
+                        display
+                    )
+
+                    if #options >= SEARCH_CACHE_LIMIT then
+                        break
+                    end
+                end
+            end
+
+            SearchBusy = false
+
+            if #options == 0 then
+                MainSearchDropdown:Refresh({
+                    "No music found"
+                })
+
+                return
+            end
+
+            MainSearchDropdown:Refresh(
+                options
+            )
+
+            Notify(
+                "Recent Search",
+                "Results loaded.",
+                3
+            )
+        end)
+    end
+})
+
+RecentTab:CreateButton({
+    Name = "🗑️ RESET RECENT SEARCHES",
+
+    Callback = function()
+        ResetRecentSearches()
+
+        RecentSearchDropdown:Refresh({
+            "No recent searches"
+        })
+
+        RecentSearchDropdown:Set({})
+
+        Notify(
+            "Recent Searches",
+            "Recent search history reset.",
+            3
+        )
+    end
+})
+
+--========================================================--
+-- RECENT MUSIC IDS
+--========================================================--
+
+RecentTab:CreateSection(
+    "🕘 RECENT MUSIC IDs"
+)
+
+local RecentIDDropdown =
+    RecentTab:CreateDropdown({
+        Name = "Recent Music IDs",
+
+        Options =
+            #RecentMusicIDs > 0
+            and RecentMusicIDs
+            or {"No recent music IDs"},
+
+        CurrentOption = {},
+
+        MultipleOptions = false,
+
+        Callback = function()
+        end
+    })
+
+RecentTab:CreateButton({
+    Name = "▶️ PLAY SELECTED RECENT ID",
+
+    Callback = function()
+        local selected =
+            RecentIDDropdown.CurrentOption
+
+        if type(selected) ~= "table"
+            or not selected[1] then
+
+            Notify(
+                "Recent Music IDs",
+                "Select a recent Music ID first.",
+                3
+            )
+
+            return
+        end
+
+        local id =
+            tonumber(selected[1])
+
+        if not id then
+            Notify(
+                "Invalid ID",
+                "The selected ID is invalid.",
+                3
+            )
+
+            return
+        end
+
+        PlayAudio({
+            Id = id,
+            Title = "Audio " .. tostring(id),
+            Artist = "Unknown Artist",
+            Duration = 0
+        }, false)
+    end
+})
+
+RecentTab:CreateButton({
+    Name = "🗑️ RESET RECENT MUSIC IDs",
+
+    Callback = function()
+        ResetRecentMusicIDs()
+
+        RecentIDDropdown:Refresh({
+            "No recent music IDs"
+        })
+
+        RecentIDDropdown:Set({})
+
+        Notify(
+            "Recent Music IDs",
+            "Recent Music ID history reset.",
+            3
+        )
+    end
+})
+
+--========================================================--
+-- PLAYER
+--========================================================--
+
+MainTab:CreateSection(
+    "🎵 PLAYER"
+)
+
+MainTab:CreateButton({
+    Name = "▶️ Play / Resume",
+
+    Callback = function()
+        if CurrentID then
+            pcall(function()
+                Sound:Play()
+            end)
+        else
+            Notify(
+                "ROXO BOOMBOX",
+                "Nothing is selected.",
+                3
+            )
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "⏸️ Pause",
+
+    Callback = function()
+        pcall(function()
+            Sound:Pause()
+        end)
+    end
+})
+
+MainTab:CreateButton({
+    Name = "⏹️ Stop",
+
+    Callback = function()
+        pcall(function()
+            Sound:Stop()
+        end)
+    end
+})
+
+MainTab:CreateButton({
+    Name = "⏪ -10 Seconds",
+
+    Callback = function()
+        if not CurrentID then
+            return
+        end
+
+        Sound.TimePosition =
+            math.max(
+                Sound.TimePosition - 10,
+                0
+            )
+    end
+})
+
+MainTab:CreateButton({
+    Name = "⏩ +10 Seconds",
+
+    Callback = function()
+        if not CurrentID then
+            return
+        end
+
+        local position =
+            Sound.TimePosition
+
+        local length =
+            Sound.TimeLength
+
+        if length > 0 then
+            Sound.TimePosition =
+                math.min(
+                    position + 10,
+                    length
+                )
+        else
+            Sound.TimePosition =
+                position + 10
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "🗑️ Remove Music",
+
+    Callback = function()
+        RemoveCurrentMusic()
+    end
+})
+
+--========================================================--
+-- MUSIC ID CENTER
+--========================================================--
+
+MainTab:CreateSection(
+    "🆔 MUSIC ID CENTER"
+)
+
+local MusicIDInput =
+    MainTab:CreateInput({
+        Name = "Roblox Music ID",
+
+        PlaceholderText =
+            "Enter Roblox audio ID...",
+
+        RemoveTextAfterFocusLost = false,
+
+        Callback = function()
+        end
+    })
+
+MainTab:CreateButton({
+    Name = "▶️ Play Music ID",
+
+    Callback = function()
+        local id =
+            tonumber(
+                MusicIDInput.CurrentValue
+            )
+
+        if not id then
+            Notify(
+                "Invalid ID",
+                "Enter a valid Roblox audio ID.",
+                3
+            )
+
+            return
+        end
+
+        PlayAudio({
+            Id = id,
+
+            Title =
+                "Audio " .. tostring(id),
+
+            Artist =
+                "Unknown Artist",
+
+            Duration = 0
+        }, false)
+    end
+})
+
+MainTab:CreateButton({
+    Name = "🕘 Save / Open Recent ID",
+
+    Callback = function()
+        local id =
+            tonumber(
+                MusicIDInput.CurrentValue
+            )
+
+        if not id then
+            Notify(
+                "Invalid ID",
+                "Enter a valid Roblox audio ID.",
+                3
+            )
+
+            return
+        end
+
+        AddRecentMusicID(id)
+
+        Notify(
+            "Recent Music IDs",
+            "ID saved to recent history.",
+            3
+        )
+
+        RecentIDDropdown:Refresh(
+            RecentMusicIDs
+        )
+    end
+})
+
+--========================================================--
+-- AUDIO CONTROL
+--========================================================--
+
+MainTab:CreateSection(
+    "🎚️ AUDIO CONTROL"
+)
+
+MainTab:CreateSlider({
+    Name = "🔊 Volume",
+
+    Range = {
+        0,
+        MAX_VOLUME_PERCENT
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_VOLUME,
+
+    Callback = function(value)
+        Volume =
+            Clamp(
+                value,
+                0,
+                MAX_VOLUME_PERCENT
+            )
+
+        Sound.Volume =
+            math.clamp(
+                Volume / 100,
+                0,
+                50
+            )
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "⚡ Normal Speed",
+
+    Range = {
+        MIN_SPEED,
+        MAX_SPEED
+    },
+
+    Increment = 0.05,
+
+    Suffix = "x",
+
+    CurrentValue =
+        DEFAULT_SPEED,
+
+    Callback = function(value)
+        NormalSpeed =
+            Clamp(
+                value,
+                MIN_SPEED,
+                MAX_SPEED
+            )
+
+        if not RecommendedSlowed
+            and not CustomSlowed
+            and not PeacefulEnabled then
+
+            Sound.PlaybackSpeed =
+                NormalSpeed
+        end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "🔁 Loop",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        LoopEnabled = value
+        Sound.Looped = value
+    end
+})
+
+--========================================================--
+-- BASS
+--========================================================--
+
+MainTab:CreateSection(
+    "🔊 BASS BOOST OVERHAUL"
+)
+
+MainTab:CreateToggle({
+    Name = "🔊 Bass Boost",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        BassEnabled = value
+
+        if value then
+            PeacefulEnabled = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Bass Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_BASS,
+
+    Callback = function(value)
+        BassAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        ApplyAudioEffects()
+    end
+})
+
+--========================================================--
+-- HEADPHONES
+--========================================================--
+
+MainTab:CreateSection(
+    "🎧 PREMIUM HEADPHONE OVERHAUL"
+)
+
+MainTab:CreateToggle({
+    Name = "🎧 Premium Headphone Mode",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        HeadphoneEnabled = value
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Headphone Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_HEADPHONE,
+
+    Callback = function(value)
+        HeadphoneAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        ApplyAudioEffects()
+    end
+})
+
+--========================================================--
+-- PEACEFUL
+--========================================================--
+
+MainTab:CreateSection(
+    "🌙 HELLA PEACEFUL MODE"
+)
+
+MainTab:CreateToggle({
+    Name = "🌙 Peaceful Mode",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        PeacefulEnabled = value
+
+        if value then
+            BassEnabled = false
+            PhonkFunkEnabled = false
+            BeatsEnabled = false
+            RecommendedSlowed = false
+            CustomSlowed = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Peaceful Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_PEACEFUL,
+
+    Callback = function(value)
+        PeacefulAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        if PeacefulEnabled then
+            ApplyAudioEffects()
+        end
+    end
+})
+
+--========================================================--
+-- PHONK / FUNK
+--========================================================--
+
+MainTab:CreateSection(
+    "🔥 PHONK + FUNK OVERHAUL"
+)
+
+MainTab:CreateToggle({
+    Name = "🔥 Phonk + Funk Mode",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        PhonkFunkEnabled = value
+
+        if value then
+            PeacefulEnabled = false
+            RecommendedSlowed = false
+            CustomSlowed = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Phonk + Funk Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_PHONKFUNK,
+
+    Callback = function(value)
+        PhonkFunkAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        ApplyAudioEffects()
+    end
+})
+
+--========================================================--
+-- BEAT
+--========================================================--
+
+MainTab:CreateSection(
+    "🥁 BEAT ENHANCEMENT OVERHAUL"
+)
+
+MainTab:CreateToggle({
+    Name = "🥁 Focused Beat Enhancement",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        BeatsEnabled = value
+
+        if value then
+            PeacefulEnabled = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Beat Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_BEATS,
+
+    Callback = function(value)
+        BeatAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        ApplyAudioEffects()
+    end
+})
+
+--========================================================--
+-- SLOWED + REVERB
+--========================================================--
+
+MainTab:CreateSection(
+    "🌀 SLOWED + REVERB OVERHAUL"
+)
+
+MainTab:CreateToggle({
+    Name = "🌀 Recommended Slowed + Reverb",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        RecommendedSlowed = value
+
+        if value then
+            PeacefulEnabled = false
+            PhonkFunkEnabled = false
+            BeatsEnabled = false
+            BassEnabled = false
+            CustomSlowed = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "🎛️ Custom Slowed + Reverb",
+
+    CurrentValue = false,
+
+    Callback = function(value)
+        CustomSlowed = value
+
+        if value then
+            PeacefulEnabled = false
+            RecommendedSlowed = false
+        end
+
+        ApplyAudioEffects()
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Slow Strength",
+
+    Range = {
+        0,
+        50
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_CUSTOM_SLOW,
+
+    Callback = function(value)
+        CustomSlowAmount =
+            Clamp(
+                value,
+                0,
+                50
+            )
+
+        if CustomSlowed then
+            ApplyAudioEffects()
+        end
+    end
+})
+
+MainTab:CreateSlider({
+    Name = "Reverb Strength",
+
+    Range = {
+        0,
+        100
+    },
+
+    Increment = 1,
+
+    Suffix = "%",
+
+    CurrentValue =
+        DEFAULT_CUSTOM_REVERB,
+
+    Callback = function(value)
+        CustomReverbAmount =
+            Clamp(
+                value,
+                0,
+                100
+            )
+
+        if CustomSlowed then
+            ApplyAudioEffects()
+        end
+    end
+})
+
+--========================================================--
+-- QUEUE SEARCH
+--========================================================--
+
+QueueTab:CreateSection(
+    "🔎 QUEUE MUSIC SEARCH"
+)
+
+local QueueSearchInput =
+    QueueTab:CreateInput({
+        Name = "Queue Music Search",
+
+        PlaceholderText =
+            "Search music to add to queue...",
+
+        RemoveTextAfterFocusLost = false,
+
+        Callback = function()
+        end
+    })
+
+local QueueSearchDropdown =
+    QueueTab:CreateDropdown({
+        Name = "Queue Search Results",
+
+        Options = {
+            "Search for queue music first"
+        },
+
+        CurrentOption = {},
+
+        MultipleOptions = true,
+
+        Callback = function(options)
+            SelectedQueueSearchResults = {}
+
+            if type(options) ~= "table" then
+                return
+            end
+
+            for _, selected in ipairs(options) do
+                if QueueSearchResults[selected] then
+                    SelectedQueueSearchResults[selected] =
+                        QueueSearchResults[selected]
+                end
+            end
+        end
+    })
+
+QueueTab:CreateButton({
+    Name = "🔎 Search Queue Music",
+
+    Callback = function()
+        if QueueSearchBusy then
+            Notify(
+                "Queue Search Busy",
+                "Please wait for the current search.",
+                2
+            )
+
+            return
+        end
+
+        local keyword =
+            QueueSearchInput.CurrentValue
+
+        if not keyword
+            or keyword == "" then
+
+            Notify(
+                "Queue Search",
+                "Enter a search first.",
+                3
+            )
+
+            return
+        end
+
+        QueueSearchBusy = true
+        QueueSearchResults = {}
+        SelectedQueueSearchResults = {}
+
+        AddRecentSearch(keyword)
+
+        QueueSearchDropdown:Refresh({
+            "Searching..."
+        })
+
+        task.spawn(function()
+            local success, pages =
+                pcall(function()
+                    local params =
+                        Instance.new(
+                            "AudioSearchParams"
+                        )
+
+                    params.SearchKeyword =
+                        keyword
+
+                    return AssetService:
+                        SearchAudioAsync(
+                            params
+                        )
+                end)
+
+            if not success then
+                QueueSearchBusy = false
+
+                QueueSearchDropdown:Refresh({
+                    "Search failed"
+                })
+
+                Notify(
+                    "Queue Search Error",
+                    SafeString(
+                        pages,
+                        "Queue search failed."
+                    ),
+                    5
+                )
+
+                return
+            end
+
+            local ok, results =
+                pcall(function()
+                    return pages:GetCurrentPage()
+                end)
+
+            if not ok or not results then
+                QueueSearchBusy = false
+
+                QueueSearchDropdown:Refresh({
+                    "No results"
+                })
+
+                return
+            end
+
+            local options = {}
+
+            for _, audio in ipairs(results) do
+                if audio and audio.Id then
+                    local display =
+                        BuildAudioName(audio)
+
+                    if QueueSearchResults[display] then
+                        display =
+                            display
+                            .. " ["
+                            .. tostring(audio.Id)
+                            .. "]"
+                    end
+
+                    QueueSearchResults[display] =
+                        audio
+
+                    table.insert(
+                        options,
+                        display
+                    )
+
+                    if #options >= SEARCH_CACHE_LIMIT then
+                        break
+                    end
+                end
+            end
+
+            QueueSearchBusy = false
+
+            if #options == 0 then
+                QueueSearchDropdown:Refresh({
+                    "No music found"
+                })
+
+                Notify(
+                    "Queue Search",
+                    "No audio results found.",
+                    3
+                )
+
+                return
+            end
+
+            QueueSearchDropdown:Refresh(
+                options
+            )
+
+            QueueSearchDropdown:Set({})
+
+            Notify(
+                "Queue Search Complete",
+                tostring(#options)
+                .. " result(s) found.",
+                3
+            )
+        end)
+    end
+})
+
+--========================================================--
+-- ADD SELECTED
+--========================================================--
+
+QueueTab:CreateButton({
+    Name = "➕ Add Selected To Queue",
+
+    Callback = function()
+        local added = 0
+
+        for _, audio in pairs(
+            SelectedQueueSearchResults
+        ) do
+            if audio then
+                table.insert(
+                    Queue,
+                    audio
+                )
+
+                added += 1
+            end
+        end
+
+        SelectedQueueSearchResults = {}
+
+        RefreshQueueDropdown()
+
+        if added == 0 then
+            Notify(
+                "Queue",
+                "Select one or more songs first.",
+                3
+            )
+
+            return
+        end
+
+        Notify(
+            "Queue Updated",
+            tostring(added)
+            .. " song(s) added.",
+            3
+        )
+    end
+})
+
+--========================================================--
+-- QUEUE MANAGEMENT
+--========================================================--
+
+QueueTab:CreateSection(
+    "📋 QUEUE MANAGEMENT"
+)
+
+local QueueInfo =
+    QueueTab:CreateLabel(
+        "Songs in Queue: 0"
+    )
+
+QueueDropdown =
+    QueueTab:CreateDropdown({
+        Name = "Queued Songs",
+
+        Options = {
+            "Queue is empty"
+        },
+
+        CurrentOption = {},
+
+        MultipleOptions = false,
+
+        Callback = function(option)
+            local selected = option[1]
+
+            if not selected then
+                SelectedQueueIndex = nil
+                return
+            end
+
+            local index =
+                tonumber(
+                    string.match(
+                        selected,
+                        "^(%d+)%."
+                    )
+                )
+
+            SelectedQueueIndex = index
+        end
+    })
+
+QueueTab:CreateButton({
+    Name = "▶️ Play Selected Queue Song",
+
+    Callback = function()
+        if not SelectedQueueIndex then
+            Notify(
+                "Queue",
+                "Select a queued song first.",
+                3
+            )
+
+            return
+        end
+
+        local index =
+            SelectedQueueIndex
+
+        local song =
+            Queue[index]
+
+        if not song then
+            RefreshQueueDropdown()
+
+            Notify(
+                "Queue",
+                "That queue item no longer exists.",
+                3
+            )
+
+            return
+        end
+
+        table.remove(
+            Queue,
+            index
+        )
+
+        RefreshQueueDropdown()
+
+        PlayAudio(
+            song,
+            true
+        )
+    end
+})
+
+QueueTab:CreateButton({
+    Name = "🗑️ Remove Selected",
+
+    Callback = function()
+        if not SelectedQueueIndex then
+            Notify(
+                "Queue",
+                "Select a queued song first.",
+                3
+            )
+
+            return
+        end
+
+        if Queue[SelectedQueueIndex] then
+            table.remove(
+                Queue,
+                SelectedQueueIndex
+            )
+        end
+
+        RefreshQueueDropdown()
+
+        Notify(
+            "Queue",
+            "Selected song removed.",
+            3
+        )
+    end
+})
+
+QueueTab:CreateButton({
+    Name = "🧹 Clear Queue",
+
+    Callback = function()
+        table.clear(Queue)
+
+        SelectedQueueIndex = nil
+
+        RefreshQueueDropdown()
+
+        Notify(
+            "Queue",
+            "Queue cleared.",
+            3
+        )
+    end
+})
+
+QueueTab:CreateButton({
+    Name = "⏭️ Next Song",
+
+    Callback = function()
+        PlayNextSong()
+    end
+})
+
+QueueTab:CreateButton({
+    Name = "🔀 Shuffle Queue",
+
+    Callback = function()
+        if #Queue < 2 then
+            Notify(
+                "Queue",
+                "You need at least 2 songs to shuffle.",
+                3
+            )
+
+            return
+        end
+
+        for i = #Queue, 2, -1 do
+            local j =
+                math.random(
+                    1,
+                    i
+                )
+
+            Queue[i],
+            Queue[j] =
+                Queue[j],
+                Queue[i]
+        end
+
+        SelectedQueueIndex = nil
+
+        RefreshQueueDropdown()
+
+        Notify(
+            "Queue",
+            "Queue shuffled.",
+            3
+        )
+    end
+})
+
+task.spawn(function()
+    while task.wait(0.5) do
+        if Closing then
+            break
+        end
+
+        pcall(function()
+            QueueInfo:Set(
+                "Songs in Queue: "
+                .. tostring(#Queue)
+            )
+        end)
+    end
+end)
+
+--========================================================--
+-- MUSIC CLEANER
+--========================================================--
+
+HubTab:CreateSection(
+    "🧹 BOOMBOX / MUSIC CLEANER"
+)
+
+HubTab:CreateParagraph({
+    Title = "🧹 Cleaner 2.0",
+
+    Content =
+        "Repairs the ROXO audio engine, "
+        .. "removes stale effects, resets "
+        .. "runtime playback state, and "
+        .. "keeps the BOOMBOX instance clean."
+})
+
+HubTab:CreateButton({
+    Name = "🧹 CLEAN AUDIO ENGINE",
+
+    Callback = function()
+        if Closing then
+            return
+        end
+
+        pcall(function()
+            Sound:Stop()
+        end)
+
+        ResetEffectValues()
+
+        Sound.Looped =
+            LoopEnabled
+
+        Sound.Volume =
+            math.clamp(
+                Volume / 100,
+                0,
+                50
+            )
+
+        Sound.PlaybackSpeed =
+            NormalSpeed
+
+        ApplyAudioEffects()
+
+        Notify(
+            "Music Cleaner",
+            "Audio engine fully cleaned.",
+            3
+        )
+    end
+})
+
+HubTab:CreateButton({
+    Name = "🧹 CLEAN OLD ROXO SOUNDS",
+
+    Callback = function()
+        CleanOldROXOSounds()
+
+        Notify(
+            "Music Cleaner",
+            "Old ROXO audio objects cleaned.",
+            3
+        )
+    end
+})
+
+--========================================================--
+-- HUB
+--========================================================--
+
+HubTab:CreateSection(
+    "🏠 BOOMBOX CONTROL"
+)
+
+HubTab:CreateButton({
+    Name = "⏹️ Stop Music",
+
+    Callback = function()
+        if Closing then
+            return
+        end
+
+        pcall(function()
+            Sound:Stop()
+        end)
+
+        Notify(
+            "ROXO BOOMBOX",
+            "Music stopped.",
+            2
+        )
+    end
+})
+
+--========================================================--
+-- RESET ALL
+--========================================================--
+
+HubTab:CreateSection(
+    "🔄 RESET ALL"
+)
+
+HubTab:CreateParagraph({
+    Title = "♻️ Reset Behavior",
+
+    Content =
+        "Reset All closes ROXO BOOMBOX "
+        .. "and releases its runtime capacity.\n\n"
+        .. "Persistent Recent Searches and "
+        .. "Recent Music IDs are NOT deleted "
+        .. "by Reset All."
+})
+
+local function ResetAll()
+    if Closing then
+        return
+    end
+
+    pcall(function()
+        StarterGui:SetCore(
+            "SendNotification",
+            {
+                Title = "ROXO BOOMBOX",
+                Text = "PLEASE REEXECUTE IT AGAIN",
+                Duration = 5
+            }
+        )
+    end)
+
+    Closing = true
+
+    pcall(function()
+        Sound:Stop()
+    end)
+
+    StopProgressUpdater()
+
+    if LoadedConnection then
+        pcall(function()
+            LoadedConnection:Disconnect()
+        end)
+
+        LoadedConnection = nil
+    end
+
+    CleanOldROXOSounds()
+
+    ReleaseCapacity()
+
+    task.wait(0.15)
+
+    pcall(function()
+        Rayfield:Destroy()
+    end)
+end
+
+HubTab:CreateButton({
+    Name = "♻️ RESET ALL",
+
+    Callback = function()
+        ResetAll()
+    end
+})
+
+--========================================================--
+-- CLOSE
+--========================================================--
+
+HubTab:CreateButton({
+    Name = "❌ CLOSE ROXO BOOMBOX",
+
+    Callback = function()
+        if Closing then
+            return
+        end
+
+        pcall(function()
+            Rayfield:Notify({
+                Title = "ROXO BOOMBOX",
+                Content = "Closing...",
+                Duration = 1
+            })
+        end)
+
+        Closing = true
+
+        pcall(function()
+            Sound:Stop()
+        end)
+
+        StopProgressUpdater()
+
+        if LoadedConnection then
+            pcall(function()
+                LoadedConnection:Disconnect()
+            end)
+
+            LoadedConnection = nil
+        end
+
+        pcall(function()
+            Sound:Destroy()
+        end)
+
+        ReleaseCapacity()
+
+        task.wait(0.15)
+
+        pcall(function()
+            Rayfield:Destroy()
+        end)
+    end
+})
+
+--========================================================--
+-- UPDATES
+--========================================================--
+
+UpdatesTab:CreateSection(
+    "🔥 HEAVY OVERHAUL"
+)
+
+UpdatesTab:CreateParagraph({
+    Title = "ROXO BOOMBOX — HEAVY OVERHAUL",
+
+    Content =
+        "🔎 Search Engine 2.0\n"
+        .. "🕘 Persistent Recent Searches\n"
+        .. "🆔 Persistent Recent Music IDs\n"
+        .. "🗑️ Recent Search Reset\n"
+        .. "🗑️ Recent Music ID Reset\n"
+        .. "💾 Local Persistent Storage\n"
+        .. "🎵 Player 2.0\n"
+        .. "📋 Queue 2.0\n"
+        .. "🔊 Audio Engine 2.0\n"
+        .. "🧹 Cleaner 2.0\n"
+        .. "🛡️ Stability 2.0\n"
+        .. "📱 Mobile Compatibility\n"
+        .. "💻 PC Compatibility"
+})
+
+UpdatesTab:CreateSection(
+    "🕘 HISTORY"
+)
+
+UpdatesTab:CreateParagraph({
+    Title = "Persistent Personal History",
+
+    Content =
+        "Recent Searches and Recent Music IDs "
+        .. "are stored locally when the executor "
+        .. "provides file APIs.\n\n"
+        .. "They survive re-execution and are "
+        .. "separate for each local environment.\n\n"
+        .. "Maximum:\n"
+        .. "• 50 Recent Searches\n"
+        .. "• 50 Recent Music IDs"
+})
+
+UpdatesTab:CreateSection(
+    "🔊 AUDIO"
+)
+
+UpdatesTab:CreateParagraph({
+    Title = "Audio Engine Overhaul",
+
+    Content =
+        "Bass Boost\n"
+        .. "Premium Headphones\n"
+        .. "Peaceful Mode\n"
+        .. "Phonk + Funk\n"
+        .. "Beat Enhancement\n"
+        .. "Slowed + Reverb\n\n"
+        .. "The old Audio Profile System has "
+        .. "been completely removed."
+})
+
+UpdatesTab:CreateSection(
+    "📋 QUEUE"
+)
+
+UpdatesTab:CreateParagraph({
+    Title = "Queue 2.0",
+
+    Content =
+        "Multi-select search results, "
+        .. "add multiple songs, play selected, "
+        .. "remove, clear, shuffle, next, "
+        .. "and automatic next-song playback."
+})
+
+UpdatesTab:CreateSection(
+    "🧹 STABILITY"
+)
+
+UpdatesTab:CreateParagraph({
+    Title = "Stability 2.0",
+
+    Content =
+        "Improved cleanup, search protection, "
+        .. "queue protection, playback recovery, "
+        .. "effect cleanup, re-execution protection, "
+        .. "capacity protection, and player-leave cleanup."
+})
+
+--========================================================--
+-- EXECUTION SOUND
+--========================================================--
+
+local function PlayExecutionSound()
+    if EXECUTION_SOUND_ID == ""
+        or EXECUTION_SOUND_ID == nil then
+        return
+    end
+
+    local id =
+        tostring(
+            EXECUTION_SOUND_ID
+        ):match("%d+")
+
+    if not id then
+        return
+    end
+
+    local StartupSound =
+        Instance.new("Sound")
+
+    StartupSound.Name =
+        "ROXO_EXECUTION_SOUND"
+
+    StartupSound.SoundId =
+        "rbxassetid://" .. id
+
+    StartupSound.Volume = 2
+    StartupSound.PlaybackSpeed = 1
+    StartupSound.Looped = false
+    StartupSound.Parent = SoundService
+
+    pcall(function()
+        StartupSound:Play()
+    end)
+
+    task.delay(
+        12,
+        function()
+            if StartupSound
+                and StartupSound.Parent then
+
+                pcall(function()
+                    StartupSound:Destroy()
+                end)
+            end
+        end
+    )
+end
+
+--========================================================--
+-- REFRESH HISTORY UI
+--========================================================--
+
+local function RefreshHistoryUI()
+    pcall(function()
+        RecentSearchDropdown:Refresh(
+            #RecentSearches > 0
+            and RecentSearches
+            or {"No recent searches"}
+        )
+
+        RecentSearchDropdown:Set({})
+
+        RecentIDDropdown:Refresh(
+            #RecentMusicIDs > 0
+            and RecentMusicIDs
+            or {"No recent music IDs"}
+        )
+
+        RecentIDDropdown:Set({})
+    end)
+end
+
+--========================================================--
+-- INITIALIZE
+--========================================================--
+
+ApplyAudioEffects()
+
+UpdateStatus()
+
+StartProgressUpdater()
+
+RefreshHistoryUI()
+
+task.defer(function()
+    if Closing then
+        return
+    end
+
+    PlayExecutionSound()
+
+    Notify(
+        "ROXO BOOMBOX",
+        "HEAVY OVERHAUL loaded successfully.",
+        4
+    )
+end)
+
+--========================================================--
+-- FINAL SAFETY
+--========================================================--
+
+Sound.Destroying:Connect(function()
+    StopProgressUpdater()
+
+    if LoadedConnection then
+        pcall(function()
+            LoadedConnection:Disconnect()
+        end)
+
+        LoadedConnection = nil
+    end
+
+    ReleaseCapacity()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if player ~= Player then
+        return
+    end
+
+    Closing = true
+
+    StopProgressUpdater()
+
+    if LoadedConnection then
+        pcall(function()
+            LoadedConnection:Disconnect()
+        end)
+
+        LoadedConnection = nil
+    end
+
+    pcall(function()
+        Sound:Stop()
+    end)
+
+    pcall(function()
+        Sound:Destroy()
+    end)
+
+    ReleaseCapacity()
+end)
+
+--========================================================--
+-- FINAL
+--========================================================--
+
+print(
+    "ROXO BOOMBOX [BETA] — HEAVY OVERHAUL"
+)
+
+print(
+    "Made by IDODGE"
+)
+
+print(
+    "Persistent Recent Searches: "
+    .. tostring(#RecentSearches)
+)
+
+print(
+    "Persistent Recent Music IDs: "
+    .. tostring(#RecentMusicIDs)
+)
+
+print(
+    "All systems initialized."
+)
